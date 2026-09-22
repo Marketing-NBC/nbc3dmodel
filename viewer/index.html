@@ -67,12 +67,13 @@ const url = (p) => new URL(p, BASE).href;
 // Cache-busting op de eigen modules: browsers cachen ES-modules los van de
 // pagina, waardoor een hard refresh soms een verouderde branding.js liet
 // draaien. Bump APP_VERSION bij elke wijziging aan src/*.
-const APP_VERSION = 'v21';
-let Application, applyBranding, DECOR_PRESETS, initTooltips;
+const APP_VERSION = 'v22';
+let Application, applyBranding, DECOR_PRESETS, initTooltips, applyQuality;
 try {
   ({ Application } = await import(url('vendor/spline/runtime.js')));
   ({ applyBranding, DECOR_PRESETS } = await import(url('src/branding.js') + '?' + APP_VERSION));
   ({ initTooltips } = await import(url('src/tooltips.js') + '?' + APP_VERSION));
+  ({ applyQuality } = await import(url('src/quality.js') + '?' + APP_VERSION));
 } catch (e) {
   fail('Kon de 3D-runtime niet laden (' + (e.message || e) + '). Controleer of vendor/, src/ en assets/ mee zijn gepubliceerd.');
   throw e;
@@ -142,8 +143,14 @@ async function loadConfig() {
 
 let app = null;
 let tooltips = null;
+let quality = null;
 let config = {};
 let loadId = 0;
+
+// Debug-handle (console/tests): window.__nbc3d.app, .quality
+// Kwaliteitsinstellingen zijn te overrulen met window.NBC3D_QUALITY = {...}
+// (zie src/quality.js, QUALITY_DEFAULTS) vóórdat de pagina laadt.
+window.__nbc3d = { get app() { return app; }, get quality() { return quality; }, get config() { return config; } };
 
 async function showScene(key) {
   const id = ++loadId;
@@ -151,6 +158,7 @@ async function showScene(key) {
   statusEl.textContent = '3D plattegrond laden…';
   statusEl.classList.remove('hidden');
   if (tooltips) { tooltips.dispose(); tooltips = null; }
+  if (quality) { try { quality.dispose(); } catch (e) {} quality = null; }
   if (app) { try { app.dispose(); } catch (e) {} app = null; }
   // verse canvas per scène (dispose laat soms context-resten achter)
   const old = document.getElementById('c');
@@ -160,6 +168,12 @@ async function showScene(key) {
   app = new Application(canvas);
   await app.load(SCENES[key].url);
   if (id !== loadId) return; // inmiddels een andere scène gekozen
+  // scherp beeld tijdens beweging + pixel ratio-beleid (zie src/quality.js)
+  try {
+    quality = applyQuality(app, window.NBC3D_QUALITY || {});
+  } catch (e) {
+    console.warn('Kwaliteitsinstellingen konden niet worden toegepast:', e);
+  }
   try {
     // decor-presets (meegeleverde wandbeelden) omzetten naar een afbeelding
     const cfg = JSON.parse(JSON.stringify(config));

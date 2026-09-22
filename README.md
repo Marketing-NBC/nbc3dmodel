@@ -32,6 +32,7 @@ schermcontent, deelbaar via een unieke, niet-herleidbare URL.
 |---|---|
 | `assets/spline/*/scene.splinecode` | De 4 Spline-scènes van de live site (congres, feest, sitdown, lounge) |
 | `src/branding.js` | Branding-module: texture-injectie + kleuren, werkt op `@splinetool/runtime` |
+| `src/quality.js` | Beeldkwaliteit: scherp beeld tijdens draaien/zoomen (TAA-patch), pixel ratio-beleid |
 | `viewer/` | Klantpagina: laadt branding-config via `?e=TOKEN` of `#c=<config>` en toont het gebrande model |
 | `admin/` | Demo-beheeromgeving: kleuren kiezen, logo/beelden uploaden, deelbare link genereren |
 | `scripts/` | Lokale server + Playwright-testen (inspectie, branding-PoC, viewer e2e) |
@@ -67,6 +68,7 @@ draco/wasm-verzoeken lokaal afgevangen):
 ```bash
 node scripts/test-branding.mjs congres   # before/after-screenshots branding
 node scripts/test-viewer.mjs             # e2e: viewer met config + scènewissel
+node scripts/test-sharpness.mjs          # scherpte in beweging: oud vs. nieuw (+ alpha-varianten als argumenten)
 node scripts/inspect-scene.mjs           # inventarisatie objecten/materialen
 ```
 
@@ -98,6 +100,30 @@ Daarnaast:
 Deel-URL's: `viewer/?e=TOKEN` laadt `configs/TOKEN.json` (token = 22 random
 tekens, niet herleidbaar tot de klant). Voor snelle demo's zonder server kan
 de volledige config ook in de URL-hash (`#c=…`).
+
+## Beeldscherpte tijdens beweging
+
+De Spline-runtime rendert zonder MSAA en gebruikt temporal anti-aliasing:
+elk frame krijgt een subpixel-jitter en de resolve-shader mengt 10% nieuw
+frame met 90% gereprojecteerde historie. Stilstaand convergeert dat in ~30
+frames naar een strak beeld, maar tijdens draaien/zoomen (en de damping
+daarna) wordt die historie elk frame opnieuw verschoven en geresampled: het
+model "smeert" en springt pas na het stilvallen weer scherp.
+
+`src/quality.js` (aangeroepen in `viewer/` direct na `app.load()`):
+- **TAA-patch**: de resolve-shader (`renderer.pipeline.taaPass.resolveMaterial`)
+  wordt runtime aangepast zodat de historie-weging afhangt van de
+  bewegingssnelheid per pixel (velocity-buffer). Stilstaand ongewijzigd
+  (`alphaStatic` 0.1), in beweging `alphaMoving` 0.5 vanaf `speedPx` 1.5 px/frame.
+- **Pixel ratio**: de scènes staan op "auto" (= devicePixelRatio). Begrensd op
+  2 (telefoons met DPR 3 renderden 9x zoveel pixels als 1x) en de ratio volgt
+  DPR-wijzigingen (ander scherm, browserzoom).
+- **Adaptief**: zijn >60% van de frames tijdens interactie trager dan 45 ms,
+  dan gaat de pixel ratio één stap (×0,75) omlaag, nooit onder 1.
+
+Debug/override: zet vóór het laden `window.NBC3D_QUALITY = { … }` (keys als in
+`QUALITY_DEFAULTS`), of gebruik in de console `__nbc3d.quality.setTaaParams({ alphaMoving: 0.4 })`
+en `__nbc3d.quality.setMotionSharpening(false)` om oud en nieuw te vergelijken.
 
 ## Nog te doen (zie wensendocument)
 
