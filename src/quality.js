@@ -15,16 +15,20 @@
  *
  * Wat deze module doet
  * --------------------
- * 1. TAA-resolve-shader runtime patchen: de historie-weging hangt af van de
- *    bewegingssnelheid per pixel (uit de velocity-buffer). Stilstaand blijft
- *    de runtime-standaard (0.1 nieuw / 0.9 historie) zodat het beeld nog
- *    steeds mooi convergeert; in beweging gaat het aandeel nieuw frame omhoog
- *    zodat er nauwelijks smeer overblijft.
- * 2. Pixel ratio: de scènes staan op "auto" (= devicePixelRatio). Dat is
- *    scherp, maar op telefoons met DPR 3 zijn dat 9x zoveel pixels als 1x en
- *    wordt bewegen schokkerig. We begrenzen op `maxPixelRatio` (2) en volgen
+ * 1. TAA-resolve-shader runtime patchen: de historie-weging hangt af van
+ *    beweging. Twee signalen, het sterkste wint:
+ *    - `nbcMotion` (uniform, uit JS): 1 zolang de camera van positie,
+ *      rotatie of projectie verandert, daarna in een paar frames terug naar
+ *      0. Dit is framerate-onafhankelijk: op een echte GPU bij 60-120 fps
+ *      beweegt de camera per frame maar een fractie van een pixel, dus een
+ *      drempel op pixelsnelheid alleen pakt dat niet.
+ *    - de pixelsnelheid uit de velocity-buffer (voor bewegende objecten).
+ *    Stilstaand blijft de runtime-standaard (0.1 nieuw / 0.9 historie) zodat
+ *    het beeld nog steeds mooi convergeert; in beweging gaat het aandeel nieuw
+ *    frame omhoog zodat er nauwelijks smeer overblijft.
+ * 2. Pixel ratio: de scènes staan op "auto" (= devicePixelRatio). We volgen
  *    DPR-wijzigingen (venster naar ander scherm, browserzoom), wat de runtime
- *    zelf niet doet.
+ *    zelf niet doet, en begrenzen op `maxPixelRatio`.
  * 3. Adaptief: renderen tijdens interactie structureel te traag → één stap
  *    lagere pixel ratio (nooit onder 1). Liever iets minder pixels dan een
  *    diashow; scherpte in beweging komt vooral uit punt 1.
@@ -38,8 +42,10 @@ export const QUALITY_DEFAULTS = {
   motionSharpening: true,
   alphaStatic: 0.1,   // runtime-standaard: aandeel nieuw frame bij stilstand
   alphaMoving: 0.5,   // aandeel nieuw frame bij (volle) beweging
-  speedPx: 1.5,       // px/frame waarbij de overgang naar alphaMoving compleet is
-  maxPixelRatio: 2,   // bovengrens voor devicePixelRatio
+  speedPx: 0.25,      // px/frame waarbij de overgang naar alphaMoving compleet is
+  cameraMotion: true, // camerabeweging uit JS als bewegingssignaal
+  motionDecay: 0.5,   // per frame: nbcMotion *= motionDecay zodra de camera stilstaat
+  maxPixelRatio: 3,   // bovengrens voor devicePixelRatio (adaptief regelt de rest)
   pixelRatio: null,   // vaste waarde (tests/debug); null = automatisch
   adaptive: true,     // stap terug in pixel ratio bij structureel trage frames
   slowFrameMs: 45,    // frame trager dan dit telt als "traag" (~22 fps)
@@ -83,14 +89,57 @@ function patchTaa(app, params) {
     }
     next = original.replace(TAA_BLEND_RE,
       `float nbcSpeedPx=length(velocity*resolution);` +
-      `float alpha=mix(${fmt(params.alphaStatic)},${fmt(params.alphaMoving)},smoothstep(0.0,${fmt(params.speedPx)},nbcSpeedPx));` +
+      `float nbcMove=max(nbcMotion,smoothstep(0.0,${fmt(params.speedPx)},nbcSpeedPx));` +
+      `float alpha=mix(${fmt(params.alphaStatic)},${fmt(params.alphaMoving)},nbcMove);` +
       `vec4 result=mix(currentColor,previousColorClipped,1.0-alpha);`);
+    // uniform declareren vóór main()
+    next = next.replace(/void main\(\)\{/, 'uniform float nbcMotion;void main(){');
+    if (!mat.uniforms.nbcMotion) mat.uniforms.nbcMotion = { value: 0 };
   }
   if (mat.fragmentShader !== next) {
     mat.fragmentShader = next;
     mat.needsUpdate = true;
   }
   return next !== original;
+}
+
+/**
+ * Camerabeweging detecteren: vergelijkt per frame positie, rotatie en
+ * projectie van de actieve camera en zet het resultaat in de `nbcMotion`-
+ * uniform van de TAA-resolve-shader. Gehaakt vóór renderSplineScene, zodat
+ * het huidige frame meteen de juiste weging krijgt.
+ */
+function hookCameraMotion(app, params, state) {
+  const renderer = app._renderer;
+  if (!renderer || typeof renderer.renderSplineScene !== 'function') return () => {};
+  const original = renderer.renderSplineScene;
+  const prev = new Float64Array(3 + 4 + 16);
+  let primed = false;
+  let motion = 0;
+  const wrapped = function (scene, camera, ...rest) {
+    try {
+      const mat = getTaaMaterial(app);
+      const u = mat && mat.uniforms && mat.uniforms.nbcMotion;
+      if (u && camera) {
+        const p = camera.position, q = camera.quaternion, m = camera.projectionMatrix && camera.projectionMatrix.elements;
+        let changed = false;
+        const cur = [p.x, p.y, p.z, q.x, q.y, q.z, q.w];
+        if (m) for (let i = 0; i < 16; i++) cur.push(m[i]);
+        for (let i = 0; i < cur.length; i++) {
+          if (Math.abs(cur[i] - prev[i]) > 1e-7) changed = true;
+          prev[i] = cur[i];
+        }
+        if (!primed) { primed = true; changed = false; }
+        if (changed) motion = 1;
+        else { motion *= params.motionDecay; if (motion < 0.03) motion = 0; }
+        u.value = params.cameraMotion && params.motionSharpening ? motion : 0;
+        state.cameraMoving = motion > 0;
+      }
+    } catch (e) { /* nooit het renderen blokkeren */ }
+    return original.call(this, scene, camera, ...rest);
+  };
+  renderer.renderSplineScene = wrapped;
+  return () => { if (renderer.renderSplineScene === wrapped) delete renderer.renderSplineScene; };
 }
 
 /**
@@ -107,6 +156,7 @@ export function applyQuality(app, options = {}) {
     devicePixelRatio: window.devicePixelRatio || 1,
     stepsDown: 0,
     mobile: IS_MOBILE,
+    cameraMoving: false,
   };
   let disposed = false;
 
@@ -170,6 +220,7 @@ export function applyQuality(app, options = {}) {
 
   /* --- start --- */
   state.taaPatched = patchTaa(app, params);
+  const unhookCamera = hookCameraMotion(app, params, state);
   applyPixelRatio();
   watchDpr();
   app.canvas.addEventListener('rendered', onRendered);
@@ -193,6 +244,7 @@ export function applyQuality(app, options = {}) {
     setPixelRatio,
     dispose() {
       disposed = true;
+      unhookCamera();
       app.canvas.removeEventListener('rendered', onRendered);
       if (mq && mq.__nbcOnChange) { try { mq.removeEventListener('change', mq.__nbcOnChange); } catch (e) {} }
       mq = null;
