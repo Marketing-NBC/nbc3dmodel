@@ -68,7 +68,7 @@ draco/wasm-verzoeken lokaal afgevangen):
 ```bash
 node scripts/test-branding.mjs congres   # before/after-screenshots branding
 node scripts/test-viewer.mjs             # e2e: viewer met config + scènewissel
-node scripts/test-sharpness.mjs          # scherpte in beweging: oud vs. nieuw (+ alpha-varianten als argumenten)
+node scripts/test-sharpness.mjs          # scherpte in beweging: oud vs. nieuw (STEP=px/frame, + alpha-varianten als argumenten)
 node scripts/inspect-scene.mjs           # inventarisatie objecten/materialen
 ```
 
@@ -112,12 +112,15 @@ model "smeert" en springt pas na het stilvallen weer scherp.
 
 `src/quality.js` (aangeroepen in `viewer/` direct na `app.load()`):
 - **TAA-patch**: de resolve-shader (`renderer.pipeline.taaPass.resolveMaterial`)
-  wordt runtime aangepast zodat de historie-weging afhangt van de
-  bewegingssnelheid per pixel (velocity-buffer). Stilstaand ongewijzigd
-  (`alphaStatic` 0.1), in beweging `alphaMoving` 0.5 vanaf `speedPx` 1.5 px/frame.
-- **Pixel ratio**: de scènes staan op "auto" (= devicePixelRatio). Begrensd op
-  2 (telefoons met DPR 3 renderden 9x zoveel pixels als 1x) en de ratio volgt
-  DPR-wijzigingen (ander scherm, browserzoom).
+  wordt runtime aangepast zodat de historie-weging afhangt van beweging.
+  Twee signalen, het sterkste wint: camerabeweging uit JS (positie, rotatie,
+  projectie per frame vergeleken, uniform `nbcMotion`; framerate-onafhankelijk,
+  want op een echte GPU bij 60-120 fps is de beweging per frame maar een
+  fractie van een pixel) en de pixelsnelheid uit de velocity-buffer
+  (`speedPx` 0.25 px/frame, voor bewegende objecten). Stilstaand ongewijzigd
+  (`alphaStatic` 0.1), in beweging `alphaMoving` 0.5.
+- **Pixel ratio**: de scènes staan op "auto" (= devicePixelRatio). De ratio
+  volgt DPR-wijzigingen (ander scherm, browserzoom) en is begrensd op 3.
 - **Adaptief**: zijn >60% van de frames tijdens interactie trager dan 45 ms,
   dan gaat de pixel ratio één stap (×0,75) omlaag, nooit onder 1.
 
