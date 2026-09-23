@@ -16,6 +16,9 @@ import { mkdirSync } from 'node:fs';
 const alphas = process.argv.slice(2).map(Number).filter((n) => n > 0 && n < 1);
 const scene = process.env.SCENE || 'congres';
 const W = Number(process.env.W || 900), H = Number(process.env.H || 560);
+// px muisbeweging per gerenderd frame; klein (≈1) bootst een echte GPU op 60-120 fps na
+const STEP = Number(process.env.STEP || 1);
+const STEPS = Number(process.env.STEPS || 30);
 
 mkdirSync('scene-inspection', { recursive: true });
 const server = spawn('node', ['scripts/serve.mjs'], { stdio: 'ignore' });
@@ -73,9 +76,9 @@ async function drag(page, dir) {
   const cx = W / 2, cy = H / 2;
   await page.mouse.move(cx, cy);
   await page.mouse.down();
-  for (let i = 1; i <= 24; i++) {
+  for (let i = 1; i <= STEPS; i++) {
     const before = await frames(page);
-    await page.mouse.move(cx + dir * i * 4, cy + i * 1.5);
+    await page.mouse.move(cx + dir * i * STEP, cy + i * STEP * 0.4);
     const t0 = Date.now();
     while ((await frames(page)) === before && Date.now() - t0 < 1500) await wait(20);
   }
