@@ -67,7 +67,7 @@ const url = (p) => new URL(p, BASE).href;
 // Cache-busting op de eigen modules: browsers cachen ES-modules los van de
 // pagina, waardoor een hard refresh soms een verouderde branding.js liet
 // draaien. Bump APP_VERSION bij elke wijziging aan src/*.
-const APP_VERSION = 'v24';
+const APP_VERSION = 'v25';
 let Application, applyBranding, DECOR_PRESETS, initTooltips, applyQuality;
 try {
   ({ Application } = await import(url('vendor/spline/runtime.js')));
@@ -197,10 +197,11 @@ async function showScene(key) {
 }
 
 function initUI() {
-  if (config.eventName || config.logo) {
+  const headerLogo = config.headerLogo || config.logo;
+  if (config.eventName || headerLogo) {
     badgeEl.style.display = 'flex';
     badgeEl.innerHTML = '';
-    if (config.logo) { const img = new Image(); img.src = config.logo; badgeEl.appendChild(img); }
+    if (headerLogo) { const img = new Image(); img.src = headerLogo; badgeEl.appendChild(img); }
     const span = document.createElement('span');
     span.textContent = 'NBC' + (config.eventName ? ' × ' + config.eventName : '');
     badgeEl.appendChild(span);
