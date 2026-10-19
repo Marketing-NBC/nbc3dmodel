@@ -98,6 +98,9 @@
       <label for="logo">Logo (png, liefst met transparantie)</label>
       <span class="filerow"><input type="file" id="logo" accept="image/png,image/svg+xml,image/webp"><button type="button" class="clearfile" data-for="logo" title="Verwijderen" aria-label="Upload verwijderen">×</button></span>
       <p class="hint">Het logo komt op alle schermen, midden op het Grand Hall-scherm en in de header van de klantpagina.</p>
+      <label for="logo-header">Eigen logo voor de bovenbalk (anders: het gewone logo)</label>
+      <span class="filerow"><input type="file" id="logo-header" accept="image/png,image/svg+xml,image/webp"><button type="button" class="clearfile" data-for="logo-header" title="Verwijderen" aria-label="Upload verwijderen">×</button></span>
+      <p class="hint">De bovenbalk is donker: gebruik hier bijvoorbeeld een witte versie van het logo.</p>
     </fieldset>
 
     <fieldset>
@@ -210,7 +213,7 @@
 
 <script type="module">
 const $ = (id) => document.getElementById(id);
-const ADMIN_VERSION = 'v24';
+const ADMIN_VERSION = 'v25';
 
 // Informatiepunten die standaard UIT staan bij een nieuw event
 // (splineName-sleutels uit src/tooltip-content.js).
@@ -387,7 +390,7 @@ function fileToDataUri(file, maxW = 1600) {
 // geüploade bestanden onthouden (ook na bewerken van een opgeslagen event)
 const uploads = {
   logo: null, eventhall: null, grandhall: null, ledwall: null, narrowcasting: null,
-  pilaren: null, logoEventhall: null, logoGrandhall: null,
+  pilaren: null, logoEventhall: null, logoGrandhall: null, logoHeader: null,
 };
 
 async function buildConfig() {
@@ -406,8 +409,8 @@ async function buildConfig() {
     try { uploads.pilaren = await fileToDataUri(pilarenFile, 800); }
     catch (e) { showError(`Logo "${pilarenFile.name}" kan niet worden gelezen (gebruik png)`); }
   }
-  // apart logo per scherm (Event Hall-wand / Grand Hall-middenscherm)
-  for (const [fid, key] of [['logo-eventhall', 'logoEventhall'], ['logo-grandhall', 'logoGrandhall']]) {
+  // apart logo per scherm (Event Hall-wand / Grand Hall-middenscherm) en voor de bovenbalk
+  for (const [fid, key] of [['logo-eventhall', 'logoEventhall'], ['logo-grandhall', 'logoGrandhall'], ['logo-header', 'logoHeader']]) {
     const f = $(fid).files[0];
     if (f) {
       try { uploads[key] = await fileToDataUri(f, 800); }
@@ -427,6 +430,7 @@ async function buildConfig() {
     eventName: $('eventName').value.trim() || undefined,
     colors: { primary: $('c1').value, secondary: $('c2').value },
     logo: uploads.logo || undefined,
+    headerLogo: uploads.logoHeader || undefined,
     pillarLogo: uploads.pilaren || undefined,
     pillarLogoPos: $('pilaren-pos').value,
     hiddenTooltips: hiddenTooltips.length ? hiddenTooltips : undefined,
@@ -631,6 +635,8 @@ function loadIntoForm(ev) {
   uploads.logoGrandhall = (c.grandhall && c.grandhall.logoImage) || null;
   $('logo-eventhall').value = '';
   $('logo-grandhall').value = '';
+  uploads.logoHeader = c.headerLogo || null;
+  $('logo-header').value = '';
   const hiddenSet = new Set(c.hiddenTooltips || []);
   for (const cb of document.querySelectorAll('#tooltip-toggles input[type=checkbox]')) {
     cb.checked = !hiddenSet.has(cb.dataset.key);
@@ -689,6 +695,7 @@ const roleForInput = (fid) =>
   fid === 'logo' ? 'logo'
   : fid === 'logo-eventhall' ? 'logoEventhall'
   : fid === 'logo-grandhall' ? 'logoGrandhall'
+  : fid === 'logo-header' ? 'logoHeader'
   : fid.replace('img-', '');
 function syncClearButtons() {
   document.querySelectorAll('.filerow').forEach((row) => {
