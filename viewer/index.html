@@ -67,7 +67,7 @@ const url = (p) => new URL(p, BASE).href;
 // Cache-busting op de eigen modules: browsers cachen ES-modules los van de
 // pagina, waardoor een hard refresh soms een verouderde branding.js liet
 // draaien. Bump APP_VERSION bij elke wijziging aan src/*.
-const APP_VERSION = 'v23';
+const APP_VERSION = 'v24';
 let Application, applyBranding, DECOR_PRESETS, initTooltips, applyQuality;
 try {
   ({ Application } = await import(url('vendor/spline/runtime.js')));
@@ -183,6 +183,7 @@ async function showScene(key) {
       if (DECOR_PRESETS[preset]) {
         cfg.eventhall.type = 'custom';
         cfg.eventhall.image = url('assets/decors/' + DECOR_PRESETS[preset]);
+        cfg.eventhall.preset = true;
       }
     }
     await applyBranding(app, cfg);
