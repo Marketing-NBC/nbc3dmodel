@@ -210,7 +210,7 @@
 
 <script type="module">
 const $ = (id) => document.getElementById(id);
-const ADMIN_VERSION = 'v23';
+const ADMIN_VERSION = 'v24';
 
 // Informatiepunten die standaard UIT staan bij een nieuw event
 // (splineName-sleutels uit src/tooltip-content.js).
@@ -395,7 +395,7 @@ async function buildConfig() {
   for (const role of ['eventhall', 'grandhall', 'ledwall', 'narrowcasting']) {
     const f = $('img-' + role).files[0];
     if (f) {
-      try { uploads[role] = await fileToDataUri(f, role === 'eventhall' ? 2400 : 1600); }
+      try { uploads[role] = await fileToDataUri(f, role === 'eventhall' ? 5120 : 1600); }
       catch (e) { showError(`Afbeelding "${f.name}" kan niet worden gelezen (gebruik jpg/png/webp)`); }
     }
     if (uploads[role]) screens[role] = uploads[role];

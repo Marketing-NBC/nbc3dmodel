@@ -492,12 +492,54 @@ export function makeLogoCanvas(logoImg, width = 852, height = 382, pad = 0.06) {
  * ------------------------------------------------------------------ */
 
 /**
+ * Maak de achtergrond van een decorbeeld transparant (kieren tussen de
+ * panelen, de zone boven de paneeltoppen).
+ *  - Presets: alle bijna-zwarte pixels. Die renders hebben ook doorkijkgaten
+ *    midden in een vorm die anders zwart op de wand komen.
+ *  - Uploads (borderOnly): alleen bijna-zwart dat via elkaar met de rand van
+ *    het beeld verbonden is. Zwarte logo's, letters en schaduwen ín een
+ *    paneel blijven zo staan; met de drempel over het hele beeld werden die
+ *    weggegooid en opgevuld met decorkleuren (vlekkerige, "wazige" logo's).
+ *    Echte gaten in een upload horen transparant te zijn; die worden
+ *    hieronder per deel opgevuld.
+ */
+function clearDecorBackground(ctx, w, h, borderOnly) {
+  let id;
+  try { id = ctx.getImageData(0, 0, w, h); } catch (e) { return; }
+  const d = id.data;
+  const n = w * h;
+  const isGap = (p) => d[p * 4 + 3] < 8 || d[p * 4] + d[p * 4 + 1] + d[p * 4 + 2] < 48;
+  if (!borderOnly) {
+    for (let p = 0; p < n; p++) if (isGap(p)) d[p * 4 + 3] = 0;
+    ctx.putImageData(id, 0, 0);
+    return;
+  }
+  const seen = new Uint8Array(n);
+  const stack = new Int32Array(n);
+  let top = 0;
+  const push = (p) => { if (!seen[p] && isGap(p)) { seen[p] = 1; stack[top++] = p; } };
+  for (let x = 0; x < w; x++) { push(x); push((h - 1) * w + x); }
+  for (let y = 0; y < h; y++) { push(y * w); push(y * w + w - 1); }
+  while (top) {
+    const p = stack[--top];
+    d[p * 4 + 3] = 0;
+    const x = p % w;
+    if (x > 0) push(p - 1);
+    if (x < w - 1) push(p + 1);
+    if (p >= w) push(p - w);
+    if (p < n - w) push(p + w);
+  }
+  ctx.putImageData(id, 0, 0);
+}
+
+/**
  * Bouw één doorlopend decorbeeld voor de hele Event Hall-schermwand en
  * verdeel het over de 4 "Deel"-textures, zodat het beeld en de logo's
  * netjes doorlopen over de wand (in plaats van 4 losse herhalingen).
  *
  * decor: { type: 'verloop' | 'effen1' | 'effen2' | 'zwart' | 'custom',
  *          image?: geladen afbeelding (bij 'custom'),
+ *          preset?: true als image een meegeleverd decor is,
  *          logoSpots?: aantal logo-plekken (1 of 2, standaard 2) }
  */
 export function applyEventhallDecor(app, { decor = {}, colors = {}, logoImg = null }) {
@@ -543,6 +585,7 @@ export function applyEventhallDecor(app, { decor = {}, colors = {}, logoImg = nu
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, total, height);
   }
+  if (type === 'custom' && decor.image) clearDecorBackground(ctx, total, height, !decor.preset);
 
   // 2. logo op 1 of 2 plekken op de wand — posities corresponderen met de
   //    panelen van het decor: het grote paneel links van het midden
@@ -562,37 +605,31 @@ export function applyEventhallDecor(app, { decor = {}, colors = {}, logoImg = nu
   }
 
   // 3. wand opdelen in de 4 delen (originele resolutie per deel).
-  //    De decors (presets én uploads) zijn voorgerenderde beelden van de
-  //    panelen met vrijwel zwarte achtergrond in de kieren en boven de
-  //    schuine paneeltoppen. Door kleine mapping-afwijkingen bemonstert de
-  //    3D-wand soms nét zo'n donkere achtergrondzone → zwarte randjes.
-  //    Oplossing per deel: bijna-zwarte pixels transparant maken en het gat
-  //    opvullen met verschoven/vergrote kopieën van hetzelfde decor (en als
-  //    laatste redmiddel de gemiddelde decorkleur). Zo bestaat er nergens
-  //    meer een zwarte pixel die op een paneelrand kan vallen.
+  //    De achtergrond (kieren, boven de paneeltoppen) is hierboven al
+  //    transparant gemaakt. Per deel worden die gaten opgevuld met
+  //    verschoven/vergrote kopieën van hetzelfde decor (en als laatste
+  //    redmiddel de gemiddelde decorkleur), zodat er geen zwarte pixel op
+  //    een paneelrand kan vallen.
   let x = 0;
   parts.forEach((p, i) => {
     const sw = p.width || widths[i];
     const sh = p.height || height;
 
-    // exacte slice, daarna bijna-zwart → transparant
+    // exacte slice + gemiddelde kleur van de zichtbare pixels
     const clean = document.createElement('canvas');
     clean.width = sw; clean.height = sh;
     const cctx = clean.getContext('2d');
     cctx.drawImage(wall, x, 0, widths[i], height, 0, 0, sw, sh);
     let avg = '#3a3a3a';
     try {
-      const id = cctx.getImageData(0, 0, sw, sh);
-      const d = id.data;
+      const d = cctx.getImageData(0, 0, sw, sh).data;
       let ar = 0, ag = 0, ab = 0, an = 0;
       for (let k = 0; k < d.length; k += 4) {
-        const lum = d[k] + d[k + 1] + d[k + 2];
-        if (lum < 48) d[k + 3] = 0;               // kier/achtergrond
-        else { ar += d[k]; ag += d[k + 1]; ab += d[k + 2]; an++; }
+        if (d[k + 3] < 128) continue;
+        ar += d[k]; ag += d[k + 1]; ab += d[k + 2]; an++;
       }
-      cctx.putImageData(id, 0, 0);
       if (an) avg = `rgb(${Math.round(ar / an)},${Math.round(ag / an)},${Math.round(ab / an)})`;
-    } catch (e) { /* zonder opschoning verder */ }
+    } catch (e) { /* standaardkleur */ }
 
     const slice = document.createElement('canvas');
     slice.width = sw; slice.height = sh;
