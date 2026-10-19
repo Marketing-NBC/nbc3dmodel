@@ -38,9 +38,9 @@
       "secondary": "#787878"
     }
   },
-  "scene": "feest",
+  "scene": "congres",
   "scenes": [
-    "feest"
+    "congres"
   ],
   "halls": {
     "eventhall": true,
