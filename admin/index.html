@@ -184,8 +184,8 @@
       <p class="hint" style="margin-top:0">Zonder publiceren zit het hele event (inclusief logo's en beelden) ín de link — die wordt dan duizenden tekens lang. Met een sleutel zet de beheeromgeving het event op de server en is de link kort: <code>…/viewer/?e=TOKEN</code>.</p>
       <label class="inline switch"><input type="checkbox" id="pub-aan"> Korte links gebruiken (publiceren op de server)</label>
       <div id="pub-velden" style="display:none">
-        <label for="pub-token">GitHub-sleutel (fine-grained token, Contents: read &amp; write)</label>
-        <input type="password" id="pub-token" placeholder="github_pat_…" autocomplete="off">
+        <label for="pub-token">GitHub-sleutel (fine-grained token van Marketing-NBC met Contents: read &amp; write, of classic token met public_repo)</label>
+        <input type="password" id="pub-token" placeholder="github_pat_… of ghp_…" autocomplete="off">
         <p class="hint">De sleutel blijft in deze browser en komt nooit in een deel-link. Maak hem aan via GitHub → Settings → Developer settings → Fine-grained tokens, met alleen toegang tot deze ene repository.</p>
         <button type="button" class="ghost" id="pub-vergeet">Sleutel uit deze browser wissen</button>
         <label for="pub-repo">Repository en branch</label>
@@ -293,6 +293,15 @@ function textToB64(text) {
   return btoa(bin);
 }
 
+/** Uitleg bij een geweigerde sleutel. Bij een publieke repo lukt lezen ook
+ *  zonder rechten, dus de weigering komt vaak pas bij het wegschrijven. */
+const tokenDenied = (status) => status === 401
+  ? 'De sleutel is ongeldig of verlopen (401). Maak een nieuw token aan.'
+  : 'De sleutel heeft geen schrijfrechten op deze repository (403). '
+    + 'De repository hoort bij de organisatie Marketing-NBC: een fine-grained token moet daar '
+    + 'Resource owner = Marketing-NBC hebben, Contents: Read and write, en door de organisatie '
+    + 'zijn toegestaan/goedgekeurd. Alternatief: een classic token met alleen het vinkje public_repo.';
+
 /** Schrijf configs/TOKEN.json naar de repository. Geeft de korte link terug. */
 async function publishConfig(token, cfg) {
   const s = loadPublishSettings();
@@ -308,7 +317,7 @@ async function publishConfig(token, cfg) {
   let sha;
   const head = await fetch(`${api}?ref=${encodeURIComponent(s.branch)}`, { headers, cache: 'no-store' });
   if (head.ok) sha = (await head.json()).sha;
-  else if (head.status === 401 || head.status === 403) throw new Error('De sleutel wordt geweigerd (401/403). Controleer of het token nog geldig is en Contents: read & write heeft op deze repository.');
+  else if (head.status === 401 || head.status === 403) throw new Error(tokenDenied(head.status));
   else if (head.status !== 404) throw new Error('Server antwoordde met ' + head.status + ' bij het opzoeken van ' + path);
 
   const res = await fetch(api, {
@@ -321,6 +330,7 @@ async function publishConfig(token, cfg) {
       ...(sha ? { sha } : {}),
     }),
   });
+  if (res.status === 401 || res.status === 403) throw new Error(tokenDenied(res.status));
   if (!res.ok) {
     let detail = '';
     try { detail = (await res.json()).message || ''; } catch (e) { /* geen json */ }
